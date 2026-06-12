@@ -1,16 +1,14 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>livepad — 实时协作便签</title>
+  <title>livepad</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; color: #d4d4d4; font-family: system-ui, sans-serif; }
-
     .app { display: flex; height: 100%; }
 
-    /* --- textarea (left) --- */
     .editor-pane { flex: 1; min-width: 0; }
     textarea {
       display: block; width: 100%; height: 100%; border: none; outline: none;
@@ -20,17 +18,16 @@
     }
     textarea::selection { background: #264f78; }
 
-    /* --- attachment panel (right) --- */
     .attach-pane {
       width: 260px; min-width: 260px; border-left: 1px solid #333;
       display: flex; flex-direction: column; background: #1a1a1a;
     }
     .attach-header {
-      padding: 14px 16px 10px; border-bottom: 1px solid #2a2a2a;
-      font-size: 13px; color: #888; display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 16px 10px; border-bottom: 1px solid #2a2a2a; display: flex;
+      justify-content: space-between; align-items: center;
     }
-    .attach-header span { font-weight: 600; }
-    .btn-row { display: flex; gap: 6px; }
+    .attach-title { font-size: 13px; color: #888; font-weight: 600; }
+    .header-actions { display: flex; gap: 6px; align-items: center; }
     .btn {
       font-size: 11px; padding: 4px 10px; border: 1px solid #444; border-radius: 4px;
       background: #252525; color: #aaa; cursor: pointer; transition: .15s;
@@ -39,10 +36,11 @@
     .btn.danger:hover { background: #5a2020; border-color: #c44; color: #f88; }
     .btn.primary { border-color: #569cd6; color: #569cd6; }
     .btn.primary:hover { background: #1a3a5c; }
+    .btn.lang { border: none; font-size: 12px; padding: 3px 6px; background: transparent; color: #666; }
+    .btn.lang:hover { color: #aaa; background: #333; }
+    .btn.lang.active { color: #569cd6; font-weight: 600; }
 
-    .attach-list {
-      flex: 1; overflow-y: auto; padding: 8px 0;
-    }
+    .attach-list { flex: 1; overflow-y: auto; padding: 8px 0; }
     .attach-item {
       display: flex; align-items: center; padding: 8px 12px; font-size: 13px;
       border-bottom: 1px solid #222; transition: background .1s;
@@ -60,19 +58,12 @@
       padding: 2px 5px; border-radius: 3px;
     }
     .attach-del:hover { color: #f44; background: #3a1515; }
-
     .empty { text-align: center; color: #555; padding: 30px 16px; font-size: 13px; }
-
-    /* file input hidden */
     #fileInput { display: none; }
-
-    /* status */
     .status {
-      position: fixed; bottom: 12px; right: 276px;
-      font-size: 12px; color: #555; pointer-events: none; transition: opacity 0.3s;
+      position: fixed; bottom: 12px; right: 276px; font-size: 12px;
+      color: #555; pointer-events: none; transition: opacity 0.3s;
     }
-
-    /* mobile: collapse attachments */
     @media (max-width: 640px) {
       .attach-pane { width: 100%; min-width: 0; height: 180px; border-left: none; border-top: 1px solid #333; flex-shrink: 0; }
       .app { flex-direction: column; }
@@ -83,18 +74,20 @@
 <body>
   <div class="app">
     <div class="editor-pane">
-      <textarea id="editor" placeholder="在此输入...（所有连接的客户端将实时同步）" spellcheck="false"></textarea>
+      <textarea id="editor" spellcheck="false"></textarea>
     </div>
-    <div class="attach-pane" id="attachPane">
+    <div class="attach-pane">
       <div class="attach-header">
-        <span>📎 附件</span>
-        <div class="btn-row">
-          <button class="btn primary" id="btnUpload" title="上传文件">上传</button>
-          <button class="btn danger" id="btnClear" title="清空所有附件">清空</button>
+        <span class="attach-title">📎 <span id="t-attach">Attachments</span></span>
+        <div class="header-actions">
+          <button class="btn lang" id="lang-zh" title="中文">中</button>
+          <button class="btn lang active" id="lang-en" title="English">EN</button>
+          <button class="btn primary" id="btnUpload"><span id="t-upload">Upload</span></button>
+          <button class="btn danger" id="btnClear"><span id="t-clear">Clear</span></button>
         </div>
       </div>
       <div class="attach-list" id="attachList">
-        <div class="empty">暂无附件</div>
+        <div class="empty" id="t-empty">No attachments</div>
       </div>
       <input type="file" id="fileInput" multiple>
     </div>
@@ -102,15 +95,60 @@
   <div class="status" id="status"></div>
 
   <script>
+    // --- i18n ---
+    const T = {
+      en: {
+        placeholder: 'Start typing... (all connected clients sync in real-time)',
+        attachments: 'Attachments',
+        upload: 'Upload',
+        clear: 'Clear',
+        clearConfirm: 'Clear all attachments?',
+        empty: 'No attachments',
+        connected: 'Connected',
+        disconnected: 'Disconnected — reconnecting...',
+        title: 'livepad — Realtime Collaborative Notepad',
+      },
+      zh: {
+        placeholder: '在此输入...（所有连接的客户端将实时同步）',
+        attachments: '附件',
+        upload: '上传',
+        clear: '清空',
+        clearConfirm: '确定清空所有附件？',
+        empty: '暂无附件',
+        connected: '已连接',
+        disconnected: '已断开 — 正在重连...',
+        title: 'livepad — 实时协作便签',
+      },
+    };
+
+    let lang = (navigator.language || '').startsWith('zh') ? 'zh' : 'en';
+    function t(key) { return T[lang][key]; }
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      editor.placeholder = t('placeholder');
+      document.querySelectorAll('[id^="t-"]').forEach(el => {
+        const k = el.id.replace('t-', '');
+        if (T[lang][k]) el.textContent = T[lang][k];
+      });
+      document.getElementById('lang-zh').classList.toggle('active', lang === 'zh');
+      document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+      // Re-render file list (refresh empty text)
+      renderFiles(currentFiles);
+    }
+
+    document.getElementById('lang-zh').addEventListener('click', () => { lang = 'zh'; applyLang(); });
+    document.getElementById('lang-en').addEventListener('click', () => { lang = 'en'; applyLang(); });
+
+    // --- App ---
     const editor = document.getElementById('editor');
     const attachList = document.getElementById('attachList');
     const fileInput = document.getElementById('fileInput');
-    const btnUpload = document.getElementById('btnUpload');
-    const btnClear = document.getElementById('btnClear');
     const status = document.getElementById('status');
 
     const IDLE_MS = 500;
     let connected = false, lastLocalInput = 0, pendingRemote = null, idleTimer = null;
+    let currentFiles = [];
 
     function setStatus(text, good) {
       status.textContent = text;
@@ -138,20 +176,19 @@
     }
 
     function renderFiles(files) {
-      if (!files || files.length === 0) {
-        attachList.innerHTML = '<div class="empty">暂无附件</div>';
+      currentFiles = files || [];
+      if (!currentFiles.length) {
+        attachList.innerHTML = `<div class="empty">${t('empty')}</div>`;
         return;
       }
-      attachList.innerHTML = files.map(f => `
+      attachList.innerHTML = currentFiles.map(f => `
         <div class="attach-item">
           <span class="attach-icon">${iconFor(f.name)}</span>
           <a class="attach-name" href="/file/${encodeURIComponent(f.name)}" download>${f.name}</a>
           <span class="attach-size">${formatSize(f.size)}</span>
-          <span class="attach-del" data-name="${f.name}" title="删除">✕</span>
+          <span class="attach-del" data-name="${f.name}" title="delete">✕</span>
         </div>
       `).join('');
-
-      // Delete handlers
       attachList.querySelectorAll('.attach-del').forEach(el => {
         el.addEventListener('click', () => {
           fetch('/file/' + encodeURIComponent(el.dataset.name), { method: 'DELETE' });
@@ -159,17 +196,14 @@
       });
     }
 
-    function applyRemote(text) {
-      editor.value = text; pendingRemote = null;
-    }
+    function applyRemote(text) { editor.value = text; pendingRemote = null; }
     function checkIdle() {
       const idle = Date.now() - lastLocalInput >= IDLE_MS;
       if (idle && pendingRemote !== null) applyRemote(pendingRemote);
       if (!idle) idleTimer = setTimeout(checkIdle, IDLE_MS);
     }
 
-    // --- Upload ---
-    btnUpload.addEventListener('click', () => fileInput.click());
+    document.getElementById('btnUpload').addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', async () => {
       for (const file of fileInput.files) {
         const form = new FormData();
@@ -179,24 +213,19 @@
       fileInput.value = '';
     });
 
-    btnClear.addEventListener('click', () => {
-      if (confirm('确定清空所有附件？')) {
-        fetch('/files', { method: 'DELETE' });
-      }
+    document.getElementById('btnClear').addEventListener('click', () => {
+      if (confirm(t('clearConfirm'))) fetch('/files', { method: 'DELETE' });
     });
 
-    // --- SSE ---
     function connect() {
       const es = new EventSource('/events');
-
       es.addEventListener('init', (e) => {
         const data = JSON.parse(e.data);
         editor.value = data.text || '';
         renderFiles(data.files || []);
         connected = true;
-        setStatus('已连接', true);
+        setStatus(t('connected'), true);
       });
-
       es.addEventListener('text', (e) => {
         const content = JSON.parse(e.data);
         if (Date.now() - lastLocalInput >= IDLE_MS) {
@@ -206,14 +235,10 @@
           if (!idleTimer) checkIdle();
         }
       });
-
-      es.addEventListener('files', (e) => {
-        renderFiles(JSON.parse(e.data));
-      });
-
+      es.addEventListener('files', (e) => renderFiles(JSON.parse(e.data)));
       es.onerror = () => {
         connected = false;
-        setStatus('已断开 — 3 秒后重连...', false);
+        setStatus(t('disconnected'), false);
         es.close();
         setTimeout(connect, 3000);
       };
@@ -228,8 +253,7 @@
       }).catch(() => {});
     });
 
-    // Drag & drop upload
-    document.addEventListener('dragover', e => { e.preventDefault(); });
+    document.addEventListener('dragover', e => e.preventDefault());
     document.addEventListener('drop', async e => {
       e.preventDefault();
       for (const file of e.dataTransfer.files) {
@@ -239,6 +263,7 @@
       }
     });
 
+    applyLang();
     connect();
   </script>
 </body>
