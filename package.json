@@ -1,0 +1,25 @@
+{
+  "name": "livepad",
+  "version": "1.0.0",
+  "description": "实时协作便签 — 所有客户端共享同一个 textarea，任意修改即时同步",
+  "main": "server.js",
+  "bin": {
+    "livepad": "./cli.js"
+  },
+  "files": [
+    "server.js",
+    "cli.js",
+    "index.html"
+  ],
+  "scripts": {
+    "start": "node cli.js"
+  },
+  "keywords": ["realtime", "collaborative", "notepad", "socket.io", "sync", "livepad"],
+  "author": "zhuqiang",
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.2",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
