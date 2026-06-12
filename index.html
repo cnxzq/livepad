@@ -9,7 +9,7 @@
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; color: #d4d4d4; font-family: system-ui, sans-serif; }
     .app { display: flex; height: 100%; }
 
-    .editor-pane { flex: 1; min-width: 0; }
+    .editor-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     textarea {
       display: block; width: 100%; height: 100%; border: none; outline: none;
       resize: none; padding: 24px; font-family: 'SF Mono', 'Fira Code', monospace;
@@ -23,11 +23,10 @@
       display: flex; flex-direction: column; background: #1a1a1a;
     }
     .attach-header {
-      padding: 14px 16px 10px; border-bottom: 1px solid #2a2a2a; display: flex;
-      justify-content: space-between; align-items: center;
+      padding: 16px 16px 14px; border-bottom: 1px solid #2a2a2a;
     }
-    .attach-title { font-size: 13px; color: #888; font-weight: 600; }
-    .header-actions { display: flex; gap: 6px; align-items: center; }
+    .attach-title { font-size: 13px; color: #888; font-weight: 600; margin-bottom: 10px; }
+    .header-actions { display: flex; gap: 8px; }
     .btn {
       font-size: 11px; padding: 4px 10px; border: 1px solid #444; border-radius: 4px;
       background: #252525; color: #aaa; cursor: pointer; transition: .15s;
@@ -36,9 +35,6 @@
     .btn.danger:hover { background: #5a2020; border-color: #c44; color: #f88; }
     .btn.primary { border-color: #569cd6; color: #569cd6; }
     .btn.primary:hover { background: #1a3a5c; }
-    .btn.lang { border: none; font-size: 12px; padding: 3px 6px; background: transparent; color: #666; }
-    .btn.lang:hover { color: #aaa; background: #333; }
-    .btn.lang.active { color: #569cd6; font-weight: 600; }
 
     .attach-list { flex: 1; overflow-y: auto; padding: 8px 0; }
     .attach-item {
@@ -60,14 +56,21 @@
     .attach-del:hover { color: #f44; background: #3a1515; }
     .empty { text-align: center; color: #555; padding: 30px 16px; font-size: 13px; }
     #fileInput { display: none; }
-    .status {
-      position: fixed; bottom: 12px; right: 276px; font-size: 12px;
-      color: #555; pointer-events: none; transition: opacity 0.3s;
+    .status { font-size: 12px; color: #555; pointer-events: none; transition: opacity 0.3s; }
+    .editor-foot {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 24px 8px; border-top: 1px solid #2a2a2a; flex-shrink: 0;
     }
+    .lang-switch { display: flex; gap: 2px; }
+    .btn.lang {
+      font-size: 11px; padding: 2px 7px; border: 1px solid transparent; border-radius: 3px;
+      background: transparent; color: #555; cursor: pointer;
+    }
+    .btn.lang:hover { color: #999; background: #2a2a2a; }
+    .btn.lang.active { color: #569cd6; border-color: #3a3a3a; background: #252525; font-weight: 600; }
     @media (max-width: 640px) {
       .attach-pane { width: 100%; min-width: 0; height: 180px; border-left: none; border-top: 1px solid #333; flex-shrink: 0; }
       .app { flex-direction: column; }
-      .status { right: 16px; bottom: 196px; }
     }
   </style>
 </head>
@@ -75,13 +78,18 @@
   <div class="app">
     <div class="editor-pane">
       <textarea id="editor" spellcheck="false"></textarea>
+      <div class="editor-foot">
+        <span class="status" id="status"></span>
+        <div class="lang-switch">
+          <button class="btn lang" id="lang-zh">中文</button>
+          <button class="btn lang active" id="lang-en">EN</button>
+        </div>
+      </div>
     </div>
     <div class="attach-pane">
       <div class="attach-header">
-        <span class="attach-title">📎 <span id="t-attach">Attachments</span></span>
+        <div class="attach-title">📎 <span id="t-attachments">Attachments</span></div>
         <div class="header-actions">
-          <button class="btn lang" id="lang-zh" title="中文">中</button>
-          <button class="btn lang active" id="lang-en" title="English">EN</button>
           <button class="btn primary" id="btnUpload"><span id="t-upload">Upload</span></button>
           <button class="btn danger" id="btnClear"><span id="t-clear">Clear</span></button>
         </div>
@@ -92,7 +100,6 @@
       <input type="file" id="fileInput" multiple>
     </div>
   </div>
-  <div class="status" id="status"></div>
 
   <script>
     // --- i18n ---
