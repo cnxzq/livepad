@@ -29,13 +29,32 @@
     const status = document.getElementById('status');
     const clientId = Date.now() + '-' + Math.random().toString(36).slice(2);
 
+    const IDLE_MS = 500;
     let connected = false;
+    let lastLocalInput = 0;
+    let pendingRemote = null;
+    let idleTimer = null;
 
     function setStatus(text, good) {
       status.textContent = text;
       status.style.color = good ? '#4caf50' : '#f44336';
       status.style.opacity = '1';
       setTimeout(() => { status.style.opacity = '0'; }, 3000);
+    }
+
+    function applyRemote(content) {
+      editor.value = content;
+      pendingRemote = null;
+    }
+
+    function checkIdle() {
+      const idle = Date.now() - lastLocalInput >= IDLE_MS;
+      if (idle && pendingRemote !== null) {
+        applyRemote(pendingRemote);
+      }
+      if (!idle) {
+        idleTimer = setTimeout(checkIdle, IDLE_MS);
+      }
     }
 
     function connect() {
@@ -48,8 +67,13 @@
       });
 
       es.addEventListener('message', (e) => {
-        if (document.activeElement !== editor) {
-          editor.value = JSON.parse(e.data);
+        const content = JSON.parse(e.data);
+        const idle = Date.now() - lastLocalInput >= IDLE_MS;
+        if (idle) {
+          applyRemote(content);
+        } else {
+          pendingRemote = content;
+          if (!idleTimer) checkIdle();
         }
       });
 
@@ -61,8 +85,10 @@
       };
     }
 
-    // Emit changes via POST
     editor.addEventListener('input', () => {
+      lastLocalInput = Date.now();
+      pendingRemote = null;
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
       if (!connected) return;
       fetch('/update', {
         method: 'POST',
