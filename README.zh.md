@@ -1,5 +1,7 @@
 # livepad
 
+[English](./README.md) | [中文](./README.zh.md)
+
 实时协作便签 + 文件共享 — 零依赖，仅用 Node.js 内置模块。
 
 - 📝 满屏 textarea，多客户端实时同步
