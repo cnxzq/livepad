@@ -1,5 +1,7 @@
 # livepad
 
+[English](./README.md) | [中文](./README.zh.md)
+
 Real-time collaborative notepad + file sharing — zero dependencies, Node.js built-ins only.
 
 - 📝 Full-screen textarea, synced across all clients in real-time
