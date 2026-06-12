@@ -1,43 +1,67 @@
-const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
+const fs = require('fs');
 const path = require('path');
 
-function start({ port = 3000, host = '0.0.0.0' } = {}) {
-  const app = express();
-  const server = http.createServer(app);
-  const io = new Server(server);
+let sharedContent = '';
+const clients = new Map(); // id → response
 
-  let sharedContent = '';
-
-  // Serve the static HTML page
-  app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-  });
-
-  io.on('connection', (socket) => {
-    console.log(`Client connected: ${socket.id}`);
-
-    socket.emit('init', sharedContent);
-
-    socket.on('text-changed', (newContent) => {
-      if (typeof newContent === 'string') {
-        sharedContent = newContent;
-        socket.broadcast.emit('text-update', newContent);
-      }
-    });
-
-    socket.on('disconnect', () => {
-      console.log(`Client disconnected: ${socket.id}`);
-    });
-  });
-
-  return new Promise((resolve) => {
-    server.listen(port, host, () => {
-      console.log(`livepad running at http://${host}:${port}`);
-      resolve(server);
-    });
-  });
+function broadcast(content, excludeId) {
+  for (const [id, res] of clients) {
+    if (id !== excludeId) {
+      res.write(`data: ${JSON.stringify(content)}\n\n`);
+    }
+  }
 }
 
-module.exports = { start };
+const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf-8');
+
+const server = http.createServer((req, res) => {
+  if (req.method === 'GET' && req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(html);
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/events') {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    });
+    // Send initial content
+    res.write(`event: init\ndata: ${JSON.stringify(sharedContent)}\n\n`);
+    clients.set(id, res);
+
+    req.on('close', () => {
+      clients.delete(id);
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/update') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { content, id } = JSON.parse(body);
+        if (typeof content === 'string') {
+          sharedContent = content;
+          broadcast(content, id);
+        }
+      } catch {}
+      res.writeHead(200);
+      res.end();
+    });
+    return;
+  }
+
+  res.writeHead(404);
+  res.end();
+});
+
+const HOST = '0.0.0.0';
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, HOST, () => {
+  console.log(`livepad running at http://${HOST}:${PORT}`);
+});
