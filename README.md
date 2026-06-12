@@ -1,35 +1,35 @@
 # livepad
 
-实时协作便签 + 文件共享 — 零依赖，仅用 Node.js 内置模块。
+Real-time collaborative notepad + file sharing — zero dependencies, Node.js built-ins only.
 
-- 📝 满屏 textarea，多客户端实时同步
-- 📎 文件附件上传/下载/删除，所有人可见
-- 🔒 启动默认清除临时文件，防止隐私泄漏
+- 📝 Full-screen textarea, synced across all clients in real-time
+- 📎 File attachments — upload, download, delete, synced for everyone
+- 🔒 Auto-clears temp files on startup (privacy-first)
 
-## 使用
+## Usage
 
 ```bash
-npx livepad              # 默认 3000 端口，自动清除历史文件
-npx livepad 8080         # 指定端口
-npx livepad --keep       # 保留上次会话的文件
+npx livepad              # default port 3000, clears previous files
+npx livepad 8080         # custom port
+npx livepad --keep       # preserve files from last session
 ```
 
-打开浏览器访问 `http://localhost:3000`，多个标签页/设备访问同一地址即可实时协作。
+Open `http://localhost:3000` in multiple tabs or devices — start typing or drop files.
 
-## 功能
+## Features
 
-| 功能 | 操作 |
-|------|------|
-| 实时协作编辑 | 左侧 textarea 直接输入，停止 500ms 后同步 |
-| 上传附件 | 点击"上传"按钮 或 拖拽文件到页面 |
-| 下载附件 | 点击附件列表中的文件名 |
-| 删除附件 | 点击文件右侧 ✕ |
-| 清空附件 | 点击"清空"按钮 |
+| Feature | How |
+|---------|-----|
+| Realtime editing | Type in the left textarea; syncs after 500ms idle |
+| Upload files | Click "Upload" or drag & drop anywhere |
+| Download files | Click filename in the attachment panel |
+| Delete files | Click ✕ next to the file |
+| Clear all | Click "Clear" button |
 
-所有客户端看到的附件列表实时同步。
+All clients see the same attachment list in real-time via SSE.
 
-## 原理
+## How It Works
 
-- **SSE** — 服务端推送文本和文件列表更新
-- **HTTP POST + multipart** — 纯手工 multipart 解析，零依赖
-- 文件存储在系统临时目录 `.livepad/`（默认启动清除）
+- **SSE** — server pushes text and file list updates
+- **HTTP POST + multipart** — hand-written multipart parser, zero deps
+- Files stored in system temp dir `.livepad/` (cleared on restart by default)
