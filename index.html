@@ -6,8 +6,19 @@
   <title>livepad</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #1e1e1e; color: #d4d4d4; font-family: system-ui, sans-serif; }
     .app { display: flex; height: 100%; }
+    .login-view { height: 100%; display: grid; place-items: center; padding: 24px; overflow-y: auto; }
+    .login-card { width: 100%; max-width: 380px; padding: 32px; border: 1px solid #333; border-radius: 12px; background: #252525; }
+    .login-card h1 { font-size: 28px; margin-bottom: 12px; color: #eee; }
+    .login-hint { font-size: 14px; line-height: 1.6; color: #aaa; margin-bottom: 24px; }
+    .login-card label { display: block; font-size: 13px; margin-bottom: 8px; }
+    .login-card input { width: 100%; padding: 12px; border: 1px solid #555; border-radius: 6px; background: #1e1e1e; color: #eee; font: inherit; }
+    .login-card input:focus { outline: 2px solid #569cd6; outline-offset: 2px; }
+    .login-card .btn { width: 100%; margin-top: 16px; padding: 11px; font-size: 14px; }
+    .login-card .btn:disabled { opacity: .6; cursor: wait; }
+    .login-error { min-height: 1.5em; margin-top: 16px; color: #f88; font-size: 13px; line-height: 1.5; }
 
     .editor-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     textarea {
@@ -75,7 +86,17 @@
   </style>
 </head>
 <body>
-  <div class="app">
+  <main class="login-view" id="loginView">
+    <form class="login-card" id="loginForm" action="/auth/login" method="post">
+      <h1>livepad</h1>
+      <p class="login-hint" id="t-loginHint">Enter the access password shown in the server startup log.</p>
+      <label for="passwordInput" id="t-password">Access password</label>
+      <input id="passwordInput" type="password" autocomplete="current-password" required maxlength="128">
+      <button class="btn primary" id="loginButton" type="submit"><span id="t-unlock">Sign in</span></button>
+      <p class="login-error" id="loginError" role="alert" aria-live="polite"></p>
+    </form>
+  </main>
+  <div class="app" id="workspace" hidden>
     <div class="editor-pane">
       <textarea id="editor" spellcheck="false"></textarea>
       <div class="editor-foot">
@@ -113,6 +134,17 @@
         empty: 'No attachments',
         connected: 'Connected',
         disconnected: 'Disconnected — reconnecting...',
+        uploadFailed: 'Upload failed',
+        requestFailed: 'Request failed',
+        unsynced: 'Text not synced — local changes kept; edit to retry',
+        synced: 'Text synced',
+        loginHint: 'Enter the access password shown in the server startup log.',
+        password: 'Access password',
+        unlock: 'Sign in',
+        incorrectPassword: 'Incorrect password. Check the latest startup log.',
+        loginLimited: 'Too many attempts. Try again in one minute.',
+        loginFailed: 'Unable to sign in. Check the connection and try again.',
+        sessionExpired: 'Please sign in again with the current access password. Unsynced edits are kept in this tab.',
         title: 'livepad — Realtime Collaborative Notepad',
       },
       zh: {
@@ -124,6 +156,17 @@
         empty: '暂无附件',
         connected: '已连接',
         disconnected: '已断开 — 正在重连...',
+        uploadFailed: '上传失败',
+        requestFailed: '请求失败',
+        unsynced: '文本未同步，本地修改已保留；编辑后重试',
+        synced: '文本已同步',
+        loginHint: '请输入服务端启动日志中显示的访问密码。',
+        password: '访问密码',
+        unlock: '登录',
+        incorrectPassword: '密码错误，请查看最新的启动日志。',
+        loginLimited: '尝试次数过多，请一分钟后重试。',
+        loginFailed: '无法登录，请检查连接后重试。',
+        sessionExpired: '请使用当前访问密码重新登录，未同步的修改仍保留在本标签页中。',
         title: 'livepad — 实时协作便签',
       },
     };
@@ -152,16 +195,102 @@
     const attachList = document.getElementById('attachList');
     const fileInput = document.getElementById('fileInput');
     const status = document.getElementById('status');
+    const loginView = document.getElementById('loginView');
+    const workspace = document.getElementById('workspace');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginButton = document.getElementById('loginButton');
+    const loginError = document.getElementById('loginError');
 
     const IDLE_MS = 500;
     let connected = false, lastLocalInput = 0, pendingRemote = null, idleTimer = null;
     let currentFiles = [];
+    let hasUnsyncedText = false, localRevision = 0, updateInFlight = false;
+    let statusTimer = null;
+    let authenticated = false, eventSource = null, reconnectTimer = null;
 
-    function setStatus(text, good) {
+    function showLogin(message = '') {
+      authenticated = false;
+      connected = false;
+      if (eventSource) eventSource.close();
+      eventSource = null;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      workspace.hidden = true;
+      loginView.hidden = false;
+      loginError.textContent = message;
+    }
+
+    function showWorkspace() {
+      authenticated = true;
+      loginView.hidden = true;
+      workspace.hidden = false;
+      passwordInput.value = '';
+      loginError.textContent = '';
+      connect();
+    }
+
+    async function authenticatedFetch(url, options) {
+      const response = await fetch(url, options);
+      if (response.status === 401) {
+        showLogin(t('sessionExpired'));
+        throw new Error(t('sessionExpired'));
+      }
+      return response;
+    }
+
+    async function signIn(password) {
+      if (loginButton.disabled) return;
+      loginButton.disabled = true;
+      loginError.textContent = '';
+      try {
+        const response = await fetch('/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        if (!response.ok) {
+          loginError.textContent = t(response.status === 401 ? 'incorrectPassword'
+            : response.status === 429 ? 'loginLimited' : 'loginFailed');
+          return;
+        }
+        showWorkspace();
+      } catch {
+        loginError.textContent = t('loginFailed');
+      } finally {
+        loginButton.disabled = false;
+      }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      await signIn(passwordInput.value);
+    });
+
+    async function restoreSession() {
+      try {
+        const url = new URL(location.href);
+        if (url.searchParams.has('password')) {
+          const password = url.searchParams.get('password');
+          url.searchParams.delete('password');
+          history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+          showLogin();
+          await signIn(password);
+          return;
+        }
+        const response = await fetch('/auth/session');
+        if (response.ok) showWorkspace();
+        else showLogin(response.status === 401 ? '' : t('loginFailed'));
+      } catch {
+        showLogin(t('loginFailed'));
+      }
+    }
+
+    function setStatus(text, good, persistent = false) {
+      if (statusTimer) clearTimeout(statusTimer);
+      statusTimer = null;
       status.textContent = text;
       status.style.color = good ? '#4caf50' : '#f44336';
       status.style.opacity = '1';
-      setTimeout(() => { status.style.opacity = '0'; }, 3000);
+      if (!persistent) statusTimer = setTimeout(() => { status.style.opacity = '0'; }, 3000);
     }
 
     function formatSize(bytes) {
@@ -184,58 +313,102 @@
 
     function renderFiles(files) {
       currentFiles = files || [];
+      attachList.replaceChildren();
       if (!currentFiles.length) {
-        attachList.innerHTML = `<div class="empty">${t('empty')}</div>`;
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = t('empty');
+        attachList.append(empty);
         return;
       }
-      attachList.innerHTML = currentFiles.map(f => `
-        <div class="attach-item">
-          <span class="attach-icon">${iconFor(f.name)}</span>
-          <a class="attach-name" href="/file/${encodeURIComponent(f.name)}" download>${f.name}</a>
-          <span class="attach-size">${formatSize(f.size)}</span>
-          <span class="attach-del" data-name="${f.name}" title="delete">✕</span>
-        </div>
-      `).join('');
-      attachList.querySelectorAll('.attach-del').forEach(el => {
-        el.addEventListener('click', () => {
-          fetch('/file/' + encodeURIComponent(el.dataset.name), { method: 'DELETE' });
+      for (const file of currentFiles) {
+        const item = document.createElement('div');
+        item.className = 'attach-item';
+        const icon = document.createElement('span');
+        icon.className = 'attach-icon';
+        icon.textContent = iconFor(file.name);
+        const link = document.createElement('a');
+        link.className = 'attach-name';
+        link.href = '/file/' + encodeURIComponent(file.name);
+        link.download = file.name;
+        link.textContent = file.name;
+        const size = document.createElement('span');
+        size.className = 'attach-size';
+        size.textContent = formatSize(file.size);
+        const remove = document.createElement('span');
+        remove.className = 'attach-del';
+        remove.title = 'delete';
+        remove.textContent = '✕';
+        remove.addEventListener('click', async () => {
+          try {
+            const response = await authenticatedFetch('/file/' + encodeURIComponent(file.name), { method: 'DELETE' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          } catch (error) {
+            console.error('Delete failed', error);
+            setStatus(t('requestFailed'), false);
+          }
         });
-      });
+        item.append(icon, link, size, remove);
+        attachList.append(item);
+      }
     }
 
     function applyRemote(text) { editor.value = text; pendingRemote = null; }
     function checkIdle() {
+      idleTimer = null;
+      if (hasUnsyncedText) return;
       const idle = Date.now() - lastLocalInput >= IDLE_MS;
       if (idle && pendingRemote !== null) applyRemote(pendingRemote);
       if (!idle) idleTimer = setTimeout(checkIdle, IDLE_MS);
     }
 
     document.getElementById('btnUpload').addEventListener('click', () => fileInput.click());
+    async function uploadFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await authenticatedFetch('/upload', { method: 'POST', body: form });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.error?.message || `HTTP ${response.status}`);
+      }
+    }
     fileInput.addEventListener('change', async () => {
-      for (const file of fileInput.files) {
-        const form = new FormData();
-        form.append('file', file);
-        await fetch('/upload', { method: 'POST', body: form }).catch(() => {});
+      try {
+        for (const file of fileInput.files) await uploadFile(file);
+      } catch (error) {
+        console.error('Upload failed', error);
+        setStatus(`${t('uploadFailed')}: ${error.message}`, false);
       }
       fileInput.value = '';
     });
 
-    document.getElementById('btnClear').addEventListener('click', () => {
-      if (confirm(t('clearConfirm'))) fetch('/files', { method: 'DELETE' });
+    document.getElementById('btnClear').addEventListener('click', async () => {
+      if (!confirm(t('clearConfirm'))) return;
+      try {
+        const response = await authenticatedFetch('/files', { method: 'DELETE' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      } catch (error) {
+        console.error('Clear failed', error);
+        setStatus(t('requestFailed'), false);
+      }
     });
 
     function connect() {
+      if (!authenticated || eventSource) return;
+      reconnectTimer = null;
       const es = new EventSource('/events');
+      eventSource = es;
       es.addEventListener('init', (e) => {
         const data = JSON.parse(e.data);
-        editor.value = data.text || '';
+        if (!hasUnsyncedText) applyRemote(data.text || '');
         renderFiles(data.files || []);
         connected = true;
-        setStatus(t('connected'), true);
+        if (hasUnsyncedText) setStatus(t('unsynced'), false, true);
+        else setStatus(t('connected'), true);
       });
       es.addEventListener('text', (e) => {
         const content = JSON.parse(e.data);
-        if (Date.now() - lastLocalInput >= IDLE_MS) {
+        if (!hasUnsyncedText && Date.now() - lastLocalInput >= IDLE_MS) {
           applyRemote(content);
         } else {
           pendingRemote = content;
@@ -243,35 +416,77 @@
         }
       });
       es.addEventListener('files', (e) => renderFiles(JSON.parse(e.data)));
-      es.onerror = () => {
+      es.onerror = async () => {
+        if (eventSource !== es) return;
         connected = false;
-        setStatus(t('disconnected'), false);
+        setStatus(hasUnsyncedText ? `${t('disconnected')} — ${t('unsynced')}` : t('disconnected'), false, hasUnsyncedText);
         es.close();
-        setTimeout(connect, 3000);
+        eventSource = null;
+        try {
+          const response = await fetch('/auth/session');
+          if (response.status === 401) {
+            showLogin(t('sessionExpired'));
+            return;
+          }
+        } catch {}
+        if (authenticated && !eventSource) reconnectTimer = setTimeout(connect, 3000);
       };
+    }
+
+    async function syncText() {
+      if (!connected || updateInFlight || !hasUnsyncedText) return;
+      const revision = localRevision;
+      const content = editor.value;
+      pendingRemote = null;
+      updateInFlight = true;
+      try {
+        const response = await authenticatedFetch('/update', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+        if (!response.ok) {
+          const detail = await response.json().catch(() => null);
+          throw new Error(detail?.error?.message || `HTTP ${response.status}`);
+        }
+        if (revision === localRevision) {
+          hasUnsyncedText = false;
+          setStatus(t('synced'), true);
+          if (pendingRemote !== null && !idleTimer) checkIdle();
+        }
+      } catch (error) {
+        console.error('Update failed', error);
+        if (revision === localRevision) setStatus(`${t('unsynced')}: ${error.message}`, false, true);
+      } finally {
+        updateInFlight = false;
+        // Coalesce typing while a request is in flight; an older response must
+        // never mark a newer draft as synced or race its update on the server.
+        if (hasUnsyncedText && revision !== localRevision) syncText();
+      }
     }
 
     editor.addEventListener('input', () => {
       lastLocalInput = Date.now(); pendingRemote = null;
       if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-      if (!connected) return;
-      fetch('/update', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editor.value }),
-      }).catch(() => {});
+      localRevision += 1;
+      hasUnsyncedText = true;
+      if (!connected) setStatus(t('unsynced'), false, true);
+      syncText();
     });
 
     document.addEventListener('dragover', e => e.preventDefault());
     document.addEventListener('drop', async e => {
       e.preventDefault();
-      for (const file of e.dataTransfer.files) {
-        const form = new FormData();
-        form.append('file', file);
-        await fetch('/upload', { method: 'POST', body: form }).catch(() => {});
+      if (!authenticated) return;
+      try {
+        for (const file of e.dataTransfer.files) await uploadFile(file);
+      } catch (error) {
+        console.error('Upload failed', error);
+        setStatus(`${t('uploadFailed')}: ${error.message}`, false);
       }
     });
 
     applyLang();
-    connect();
+    restoreSession();
   </script>
 </body>
 </html>
