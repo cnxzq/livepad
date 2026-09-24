@@ -2,9 +2,14 @@
 
 ## 构建
 
+在仓库根目录中执行。镜像仓库为 `zqzyz/livepad`，版本号自动读取 `packages/cli/package.json`，同时生成 `v<版本号>` 和 `latest` 标签，无需手动修改命令。Dockerfile 直接复制 `packages/cli` 的实现和静态页面，不依赖 npm 上是否已发布新包。
+
 ```bash
-# 构建（同时打 version 和 latest 标签）
-docker build -t zqzyz/livepad:v2.4.0 -t zqzyz/livepad:latest .
+# 只构建
+pnpm docker:build
+
+# 预览构建命令，不执行 Docker
+pnpm docker:build --dry-run
 ```
 
 ## 推送
@@ -13,10 +18,17 @@ docker build -t zqzyz/livepad:v2.4.0 -t zqzyz/livepad:latest .
 # 登录 Docker Hub
 docker login
 
-# 推送所有标签
-docker push zqzyz/livepad:v2.4.0
-docker push zqzyz/livepad:latest
+# 一条命令构建并推送版本标签和 latest
+pnpm publish:docker
+
+# 只推送已有的本地版本标签和 latest
+pnpm docker:push
+
+# 预览完整发布流程，不构建、不上传
+pnpm publish:docker --dry-run
 ```
+
+构建或任一标签推送失败时立即停止；只推送时请确保本地两个标签均来自要发布的版本。以上脚本支持 Windows、macOS 和 Linux，需要已安装并启动 Docker，推送时需要账号拥有 `zqzyz/livepad` 的写入权限。
 
 ## 运行
 

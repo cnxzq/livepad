@@ -2,27 +2,29 @@
 
 [English](./README.md) | [中文](./README.zh.md)
 
-livepad 是一个实时协作记事本和临时文件共享工具，使用 Server-Sent Events（SSE）同步，仅使用 Node.js 内置模块，保持零运行时依赖。
+livepad 是一个实时协作记事本和临时文件共享工具。实现位于 `@livepad/cli`，使用 Server-Sent Events（SSE）同步，仅使用 Node.js 内置模块，无第三方运行时依赖。原 `livepad` 包保留为兼容入口，依赖 `@livepad/cli` 提供功能。
 
 > livepad 面向可信本机或可信局域网，默认使用启动日志中的密码控制访问，也可显式指定免密码模式。它没有逐用户权限控制、内置 TLS 和静态数据加密，不应直接暴露到公网。
 
 ## 环境要求与安装
 
 - Node.js 20 或更高版本；为了及时获得安全修复，请使用仍受官方支持的 Node.js 版本。
-- npm 仅用于安装或运行此包。livepad 没有运行时依赖，也没有安装阶段脚本。
+- 使用 pnpm 或 npm 安装、运行；两个包均没有安装阶段脚本。
 
 无需安装即可运行：
 
 ```bash
-npx livepad
+pnpm dlx @livepad/cli
 ```
 
 也可以全局安装 CLI：
 
 ```bash
-npm install --global livepad
+pnpm add --global @livepad/cli
 livepad
 ```
+
+原入口仍可通过 `npx livepad@latest` 或 `pnpm add --global livepad` 使用。两个包提供相同的 `livepad` 命令，选择其中一个安装即可。
 
 ## CLI 使用方式
 
@@ -47,7 +49,7 @@ livepad --no-password             # 显式免密码，也支持 --password=
 livepad --clear                   # 清空旧文本和附件后启动
 ```
 
-密码最多 128 个字符，不支持控制字符；含空格或 shell 特殊字符时请正确引用。`--password` 与 `--no-password` 不能同时使用，`--keep` 与 `--clear` 也不能同时使用。`node server.js` 与 `node cli.js` 支持相同参数。
+密码最多 128 个字符，不支持控制字符；含空格或 shell 特殊字符时请正确引用。`--password` 与 `--no-password` 不能同时使用，`--keep` 与 `--clear` 也不能同时使用。在仓库根目录执行 `pnpm start`、`node packages/cli/server.js` 或 `node packages/cli/cli.js` 均支持相同参数。
 
 默认监听所有 IPv4 网卡，用于可信局域网内共享：
 
@@ -142,14 +144,50 @@ docker run --rm -p 3000:3000 -v livepad-data:/tmp/.livepad zqzyz/livepad
 
 ## 开发与验证
 
+仓库采用轻量 pnpm workspace（nano-repo），私有根 `package.json` 固定 pnpm 10.28.1：
+
+| 目录 | 包名 | 职责 |
+| --- | --- | --- |
+| `packages/cli` | `@livepad/cli` | CLI、HTTP/SSE 服务端、网页与实现测试 |
+| `packages/livepad` | `livepad` | 兼容命令和模块入口 |
+
+兼容包通过 `workspace:*` 引用本地 CLI；pnpm 打包、发布时会转换成 CLI 包的精确版本号。根包不发布。`require('livepad')` 仍提供服务端 API，转发给 `require('@livepad/cli')`。
+
 ```bash
-npm test
-npm run lint
-npm run build
-npm pack --dry-run
+pnpm install --frozen-lockfile
+pnpm start --help
+pnpm check
+pnpm run pack --dry-run
+# 将两个发布包打包到 .release/npm
+pnpm run pack
 ```
 
-项目不需要转译；`build` 负责校验发布 JavaScript 的语法有效性。测试使用 Node.js 内置 test runner。
+也可分别运行 `pnpm test`、`pnpm lint`、`pnpm build`。项目不需要转译；`build` 负责校验 JavaScript 语法，测试使用 Node.js 内置 test runner。打包请使用 `pnpm run pack`，直接执行 `pnpm pack` 会针对私有根包，而不会调用工作区脚本。
+
+## 发布
+
+在仓库根目录执行以下命令。发布前将 `packages/cli/package.json` 与 `packages/livepad/package.json` 升到同一个新版本，更新 `CHANGELOG.md`，运行 `pnpm install`、完成检查并提交发布变更。已发布的 `livepad@2.4.0` 不能覆盖。然后登录对应平台：
+
+```bash
+pnpm login --registry=https://registry.npmjs.org
+docker login
+```
+
+```bash
+# 检查全部包，再按依赖顺序发布尚未发布的版本
+pnpm publish:npm
+
+# 构建并推送版本标签和 latest 到 Docker Hub
+pnpm publish:docker
+
+# 预演，不上传；Docker 仅打印将执行的命令
+pnpm publish:npm --dry-run --no-git-checks
+pnpm publish:docker --dry-run
+```
+
+npm 发布通过 pnpm 先发布 `@livepad/cli`，再发布依赖它的 `livepad`；已发布版本会跳过。预演也会查询仓库，仅离线检查内容可用 `pnpm run pack --dry-run`。正式发布保留 pnpm 的 Git 检查，上面的 `--no-git-checks` 仅用于预演未提交的变更。发布账号需要拥有 `livepad` 组织及原 `livepad` 包的发布权限。务必使用 pnpm 打包、发布，以便将 `workspace:*` 转为用户可安装的版本依赖。
+
+Docker 直接打包 `packages/cli` 的实现，无需从 npm 安装。标签自动读取 `packages/cli/package.json`：`zqzyz/livepad:v<版本号>` 和 `zqzyz/livepad:latest`。只构建可用 `pnpm docker:build`，只推送已有本地标签可用 `pnpm docker:push`，两者均支持 `--dry-run`。
 
 ## Issue 与安全问题反馈
 

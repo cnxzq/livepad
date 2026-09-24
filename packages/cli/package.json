@@ -1,0 +1,42 @@
+{
+  "name": "@livepad/cli",
+  "version": "2.4.0",
+  "description": "实时协作便签 + 文件共享 — 零第三方运行时依赖 SSE 同步",
+  "main": "server.js",
+  "bin": {
+    "livepad": "cli.js"
+  },
+  "files": [
+    "cli.js",
+    "server.js",
+    "index.html",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node cli.js",
+    "test": "node --test --test-concurrency=1",
+    "lint": "node --check cli.js && node --check server.js && node --check test/livepad.test.js && node --check test/ui.test.js",
+    "build": "node --check cli.js && node --check server.js",
+    "prepublishOnly": "pnpm run lint && pnpm test && pnpm run build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "keywords": ["realtime", "collaborative", "notepad", "sync", "sse", "zero-dependency"],
+  "author": "zhuqiang",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cnxzq/livepad.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/cnxzq/livepad/issues"
+  },
+  "homepage": "https://github.com/cnxzq/livepad#readme"
+}

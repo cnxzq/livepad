@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- 使用 pnpm workspace 管理两个包：`packages/cli` 承载 `@livepad/cli` 的完整实现，`packages/livepad` 保留 `livepad` 安装入口并委托给 `@livepad/cli`。
+- 保留原 CLI 命令、参数和服务端 API；统一开发、验证、打包及 npm/Docker Hub 发布脚本。
+
 ## 2.4.0 — 2026-09-23
 
 - 默认启用随机访问密码，支持 `--password` 指定密码、`--no-password` 或 `--password=` 免密码访问；登录会话在服务重启后失效。

@@ -1,0 +1,17 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  packages/cli: {}
+
+  packages/livepad:
+    dependencies:
+      '@livepad/cli':
+        specifier: workspace:*
+        version: link:../cli

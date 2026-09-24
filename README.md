@@ -2,27 +2,29 @@
 
 [English](./README.md) | [中文](./README.zh.md)
 
-livepad is a real-time collaborative notepad and temporary file-sharing tool. It uses Server-Sent Events (SSE) and Node.js built-in modules only, with zero runtime dependencies.
+livepad is a real-time collaborative notepad and temporary file-sharing tool. Its implementation lives in `@livepad/cli` and uses Server-Sent Events (SSE) and Node.js built-in modules only, with no third-party runtime dependencies. The `livepad` package remains a compatibility entry that depends on `@livepad/cli`.
 
 > livepad is designed for trusted local machines and trusted LANs. Access uses the password printed at startup by default; password-free access must be explicitly enabled. It has no per-user permissions, built-in TLS, or encryption at rest. Do not expose it directly to the public internet.
 
 ## Requirements and installation
 
 - Node.js 20 or newer; use a currently supported Node.js release for security fixes.
-- npm is only needed to install or run the package. livepad has no runtime dependencies and no install-stage scripts.
+- Use pnpm or npm to install or run the packages. Neither package has install-stage scripts.
 
 Run without installing:
 
 ```bash
-npx livepad
+pnpm dlx @livepad/cli
 ```
 
 Or install the CLI globally:
 
 ```bash
-npm install --global livepad
+pnpm add --global @livepad/cli
 livepad
 ```
+
+The original entry remains available through `npx livepad@latest` or `pnpm add --global livepad`. Both packages provide the same `livepad` command; install either one.
 
 ## CLI usage
 
@@ -47,7 +49,7 @@ livepad --no-password             # Explicitly disable login; --password= also w
 livepad --clear                   # Clear previous text and attachments before starting
 ```
 
-Passwords support up to 128 characters without control characters; quote shell-special characters and spaces appropriately. `--password` and `--no-password` are mutually exclusive, as are `--keep` and `--clear`. `node server.js` and `node cli.js` accept the same options.
+Passwords support up to 128 characters without control characters; quote shell-special characters and spaces appropriately. `--password` and `--no-password` are mutually exclusive, as are `--keep` and `--clear`. From the repository root, `pnpm start`, `node packages/cli/server.js`, and `node packages/cli/cli.js` accept the same options.
 
 The default listens on all IPv4 interfaces for sharing on a trusted LAN:
 
@@ -142,14 +144,50 @@ The access password is printed in the container logs (`docker compose logs livep
 
 ## Development and verification
 
+This is a small pnpm workspace (nano-repo), pinned to pnpm 10.28.1 in the private root `package.json`:
+
+| Directory | Package | Responsibility |
+| --- | --- | --- |
+| `packages/cli` | `@livepad/cli` | CLI, HTTP/SSE server, web UI, and implementation tests |
+| `packages/livepad` | `livepad` | Compatibility command and module entry points |
+
+The compatibility package uses `workspace:*` locally. pnpm converts it to the CLI package's exact version when packing or publishing. The root package is not published. `require('livepad')` still exposes the server API, forwarding to `require('@livepad/cli')`.
+
 ```bash
-npm test
-npm run lint
-npm run build
-npm pack --dry-run
+pnpm install --frozen-lockfile
+pnpm start --help
+pnpm check
+pnpm run pack --dry-run
+# Create both tarballs in .release/npm
+pnpm run pack
 ```
 
-There is no transpilation step; `build` performs a syntax-validity gate on the published JavaScript. Tests use Node.js's built-in test runner.
+`pnpm test`, `pnpm lint`, and `pnpm build` can also run separately. There is no transpilation step; `build` validates JavaScript syntax. Tests use Node.js's built-in test runner. Use `pnpm run pack`, since plain `pnpm pack` targets the private root package instead of the workspace script.
+
+## Publishing
+
+Run these commands from the repository checkout. Before a release, update both `packages/cli/package.json` and `packages/livepad/package.json` to the same new version and update `CHANGELOG.md`. Run `pnpm install`, complete the checks, and commit the release changes. The existing `livepad@2.4.0` cannot be overwritten. Then sign in to the registries:
+
+```bash
+pnpm login --registry=https://registry.npmjs.org
+docker login
+```
+
+```bash
+# Check all packages, then publish unpublished versions in dependency order
+pnpm publish:npm
+
+# Build and push the version tag and latest to Docker Hub
+pnpm publish:docker
+
+# Preview without uploading; Docker only prints the commands
+pnpm publish:npm --dry-run --no-git-checks
+pnpm publish:docker --dry-run
+```
+
+The npm release uses pnpm to publish `@livepad/cli` before the dependent `livepad` package, skipping versions already in the registry. Dry runs also consult the registry; use `pnpm run pack --dry-run` for an offline contents preview. Normal publication retains pnpm's Git checks; `--no-git-checks` above allows a dry run of uncommitted changes. The account must have publish access to both the `livepad` organization and the existing `livepad` package. Always use pnpm to pack or publish so that `workspace:*` is rewritten for consumers.
+
+Docker packages the implementation from `packages/cli` directly, without installing packages from npm. Tags come from `packages/cli/package.json`: `zqzyz/livepad:v<version>` and `zqzyz/livepad:latest`. Use `pnpm docker:build` to build only, or `pnpm docker:push` to push existing local tags. Both accept `--dry-run`.
 
 ## Security and issue reporting
 
